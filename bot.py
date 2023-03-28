@@ -85,8 +85,42 @@ def fandom_type_handler(call):
     user = users_collection.find_one({"telegram_id": call.message.chat.id})
     # Обновляем статус анкеты в БД
     questionnaires_collection.update_one({"user_id": call.message.chat.id}, {"$set": {"fandom_type": call.data}})
-    # Отправляем второй вопрос - выбор конкретного фандома
-    bot.send_message(call.message.chat.id, "Выберите ваш любимый фандом:", reply_markup=create_fandoms_keyboard(call.data))
+    
+    # Сохраняем статус анкеты в БД, чтобы потом вернуться к ней, если пользователь откажется от ответа
+    questionnaires_collection.update_one({"user_id": user_id, "status": "in_progress"}, {"$set": {"age": "None"}})
+    # Добавляем кнопку "Пропустить вопрос"
+    markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
+    skip_button = types.KeyboardButton(text="Пропустить вопрос")
+    markup.add(skip_button)
+    # Запрашиваем возраст пользователя
+    message = bot.send_message(user_id, "Укажите ваш возраст:" reply_markup = markup)
+    bot.register_next_step_handler(message, age_received_handler)
+
+
+# Обработчик ответа на вопрос о возрасте пользователя
+def age_received_handler(message):
+    try:
+        user_id = message.chat.id
+        if message.text.lower() == "пропустить вопрос":
+            # Если пользователь пропускает вопрос, то сохраняем ответ в БД как None и переходим к следующему вопросу
+            questionnaires_collection.update_one({"user_id": user_id, "status": "in_progress"}, {"$set": {"age": None}})
+            next_question(user_id)
+        else:
+            # Если пользователь указал возраст, то сохраняем его в БД и переходим к следующему вопросу
+            if isinstance(message.text, int): 
+                age = int(message.text)
+                questionnaires_collection.update_one({"user_id": user_id, "status": "in_progress"}, {"$set": {"age": age}})
+                next_question_woman_or_man(user_id)
+            else:
+                # Добавляем кнопку "Пропустить вопрос"
+                markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
+                skip_button = types.KeyboardButton(text="Пропустить вопрос")
+                markup.add(skip_button)
+                msg = bot.send_message(user_id, "Некорректный ввод. Пожалуйста, укажите свой возраст цифрами.", reply_markup=markup)
+                bot.register_next_step_handler(message, age_received_handler)
+    except Exception as e:
+        print(e)
+        bot.send_message(user_id, "Некорректный ввод. Пожалуйста, укажите свой возраст цифрами.", reply_markup=markup)
 
 
 #Создание инлайн-клавиатуры для выбора конкретного фандома
